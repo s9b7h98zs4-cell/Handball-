@@ -11,6 +11,7 @@ Bereinigt: Schiedsrichternamen (`gReferee`) geleert, `debug`-Blöcke entfernt.
 | `league-165421-ca1.json` | `if_g_json.php?ca=1&cmd=ps&og=216&cl=165421` | gD Bezirksklasse Staffel 1: ganze Saison, Tabelle |
 | `game-9611841-info.json` | `if_ticker_data.php?token=…&cmd=getGameInfo` | TSV Neckartenzlingen – SG Hegensberg-Liebersbronn |
 | `game-9611841-messages.json` | `if_ticker_data.php?token=…&cmd=getAllTickerMessages` | Ticker-Momentaufnahme bei 34:17 (20:18) |
+| `game-9611841-messages-final.json` | dto., nach Spielende | Endstand 24:20 mit Meldung „Spielstand 2. Halbzeit“ |
 | `invalid-token-info.json` | `getGameInfo` mit unbekanntem Token | Fehlerantwort |
 | `invalid-token-messages.json` | `getAllTickerMessages` mit unbekanntem Token | `[]` |
 

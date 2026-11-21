@@ -1,0 +1,10 @@
+{
+  "name": "neckartenzlingen-live",
+  "private": true,
+  "type": "module",
+  "description": "Handball-Liveticker als Web-App für das iPhone (Handball4All)",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "start": "python3 -m http.server 8080"
+  }
+}

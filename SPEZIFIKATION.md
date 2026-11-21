@@ -174,7 +174,7 @@ Hier stehen die **vollen** Mannschaftsnamen. `id` entspricht `gID` aus S1/S2. De
 | `Disqualifikation …` (laut Originalcode) | `disqualification` | Seite, Nummer |
 | `Mannschafts-Auszeit der Heimmannschaft` | `timeout` | Seite |
 | `Spielstand 1. Halbzeit` | `halftime` | – |
-| `Spielstand 2. Halbzeit` (**vermutet**, prüfen) | `fullTime` | – |
+| `Spielstand 2. Halbzeit` (= Spielende, am 21.11.2026 bestätigt) | `fullTime` | – |
 | sonstiger Text | `other` | Rohtext |
 
 ---
@@ -388,7 +388,7 @@ const RULES = [
   [/^Disqualifikation.*?Nummer (\S+) der (\w+)/,                      "disqualification"],
   [/^Mannschafts-Auszeit der (\w+)/,                                  "timeout"],
   [/^Spielstand 1\. Halbzeit/,                                        "halftime"],
-  [/^Spielstand 2\. Halbzeit|^Spielende/,                             "fullTime"],
+  [/^Spielstand 2\. Halbzeit/,                                      "fullTime"],  // bestätigt
 ];
 // "Heimmannschaft" → home, "Gastmannschaft" → away. Kein Treffer → "other".
 ```
@@ -509,8 +509,8 @@ const RULES = [
 
 ## 13. Offene Punkte
 
-1. **Spielende-Text im Ticker** („Spielstand 2. Halbzeit“?): nach Spielende prüfen, Regel und Fixture ergänzen.
-2. **Ab wann ist `gToken` gefüllt?** Erst bei Ticker-Start oder schon vorher? Am nächsten Spieltag beobachten. Davon hängt ab, ob der Ticker „vor dem Spiel“ schon angezeigt werden kann.
+1. ~~Spielende-Text im Ticker~~ **Geklärt (21.11.2026):** „Spielstand 2. Halbzeit“ bei 40:00 (D-Jugend). Fixture `game-9611841-messages-final.json` (Endstand 24 : 20).
+2. **`gToken` verschwindet nach Spielende** aus S1 (`live: false`, `gToken: ""`); der Ticker selbst bleibt über den Token abrufbar. Die Web-App speichert den Token daher lokal, sobald sie ihn einmal gesehen hat. Ebenfalls beobachtet: Der Halbzeitstand in S1 wird erst nach Spielende gefüllt. Offen: Ab wann ist `gToken` **vor** dem Spiel gefüllt? Am 28.11.2026 beobachten.
 3. **Spielzeiten der anderen Altersklassen** in `halfLengthByAge` mit den Durchführungsbestimmungen des BWHV abgleichen (nur relevant, wenn andere Mannschaften verfolgt werden).
 4. **Privat oder öffentlich?** Davon hängen Impressum und Erlaubnis ab (Kapitel 9).
 5. Bedeutung von `liveTeam` (Tabelle) und `ticker_update` (Ticker) ist unklar. Beides wird nicht benötigt.
