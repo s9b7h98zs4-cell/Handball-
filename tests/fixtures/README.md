@@ -1,13 +1,17 @@
 # Testdaten (Fixtures)
 
-Echte Antworten der Handball4All-Ticker-Schnittstelle
-`https://spo.handball4all.de/service/if_ticker_data.php?token=<TOKEN>&cmd=<BEFEHL>`.
+Echte Antworten der öffentlichen Handball4All-Schnittstellen vom 21.11.2026 (ca. 14:45 Uhr, gD-Spiel läuft in der 2. Halbzeit).
+Bereinigt: Schiedsrichternamen (`gReferee`) geleert, `debug`-Blöcke entfernt.
 
-| Datei | Befehl | Inhalt |
+| Datei | Schnittstelle | Inhalt |
 |---|---|---|
-| `game-9611841-info.json` | `getGameInfo` | TSV Neckartenzlingen – SG Hegensberg-Liebersbronn, gem. D-Jugend, 21.11.2026 |
-| `game-9611841-messages.json` | `getAllTickerMessages` | Momentaufnahme während der 2. Halbzeit (34:17, 20:18) |
-| `invalid-token-info.json` | `getGameInfo` | Antwort bei unbekanntem Token |
-| `invalid-token-messages.json` | `getAllTickerMessages` | Antwort bei unbekanntem Token |
+| `club-260-week-2026-11-16.json` | `if_g_json.php?ca=0&cmd=pcu&og=216&c=260` | Wochenübersicht TSV Neckartenzlingen 16.–22.11.2026 (gD-Spiel live, mit Token) |
+| `club-260-week-2026-11-23.json` | `…&do=2026-11-23` | Folgewoche 23.–29.11.2026 |
+| `league-165421-ca0.json` | `if_g_json.php?ca=0&cmd=ps&og=216&cl=165421` | gD Bezirksklasse Staffel 1: aktuelle Woche, Tabelle |
+| `league-165421-ca1.json` | `if_g_json.php?ca=1&cmd=ps&og=216&cl=165421` | gD Bezirksklasse Staffel 1: ganze Saison, Tabelle |
+| `game-9611841-info.json` | `if_ticker_data.php?token=…&cmd=getGameInfo` | TSV Neckartenzlingen – SG Hegensberg-Liebersbronn |
+| `game-9611841-messages.json` | `if_ticker_data.php?token=…&cmd=getAllTickerMessages` | Ticker-Momentaufnahme bei 34:17 (20:18) |
+| `invalid-token-info.json` | `getGameInfo` mit unbekanntem Token | Fehlerantwort |
+| `invalid-token-messages.json` | `getAllTickerMessages` mit unbekanntem Token | `[]` |
 
-Bewusst **nicht** enthalten: `getAllGameInfo`, weil diese Antwort die vollen Namen der (minderjährigen) Spielerinnen und Spieler enthält.
+Bewusst **nicht** enthalten: `cmd=getAllGameInfo`, weil diese Antwort die vollen Namen der (minderjährigen) Spielerinnen und Spieler enthält.
