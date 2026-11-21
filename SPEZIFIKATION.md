@@ -2,428 +2,409 @@
 
 | | |
 |---|---|
-| **Arbeitstitel** | HandballLive (Name noch offen) |
-| **Art** | Web-App (Webseite), optimiert für Safari auf dem iPhone, zum Home-Bildschirm hinzufügbar |
-| **Version des Dokuments** | 2.0 – Entwurf (ersetzt die Fassung 1.0 „native iOS-App“) |
-| **Stand** | 21.11.2026 |
+| **Arbeitstitel** | Neckartenzlingen Live (Name noch offen) |
+| **Art** | Statische Webseite, optimiert für Safari auf dem iPhone, zum Home-Bildschirm hinzufügbar |
+| **Erste Mannschaft** | TSV Neckartenzlingen, gemischte D-Jugend |
+| **Datenquelle** | Handball4All-Liveticker (`spo.handball4all.de`) |
+| **Version des Dokuments** | 3.0 (ersetzt 2.0; Quelle analysiert am 21.11.2026) |
 
 ---
 
-## 1. Ziel und Zusammenfassung
+## 1. Ziel
 
-Eine **Webseite**, die auf dem iPhone in Safari geöffnet wird und Handball-Spiele einer **wählbaren Jugend** (z. B. „männliche B-Jugend“) in einer **wählbaren Spielklasse** (z. B. „Bezirksoberliga“) live darstellt. Eine native App, App Store, Apple-Developer-Account oder Mac mit Xcode sind **nicht** nötig.
+Eine **einzelne Webseite**, die in Safari auf dem iPhone läuft und den **Liveticker eines Spiels der gemischten D-Jugend des TSV Neckartenzlingen** übersichtlich anzeigt: großer Spielstand, Spielzeit, Halbzeit und Spielverlauf. Die Seite enthält keine Werbung, kann wie eine App vom Home-Bildschirm gestartet werden und speichert alles **lokal auf dem Handy**.
 
-Die Webseite kombiniert zwei Datenquellen:
-
-1. **Quelle A – Liveticker:** Eine Webseite mit dem Spielverlauf (Tore, Zeitstrafen, Auszeiten, Spielzeit).
-2. **Quelle B – Spielstand und Ergebnisse:** Eine andere Webseite mit Spielplan, Spielständen und Tabelle (typischerweise das Ergebnisportal des Verbands).
-
-Die Daten werden im Browser auf dem Handy zusammengeführt und angezeigt. Einstellungen und zuletzt geladene Daten werden **lokal auf dem Handy** gespeichert. Es gibt keine Nutzerkonten und keine Datenbank auf einem Server.
-
-> **Quellen:** Welche Webseiten konkret verwendet werden, wird in Phase 0 festgelegt (Kapitel 12). Für deutsche Ligen kommen in der Regel **handball.net** (DHB) sowie die Ergebnisdienste der Landesverbände (z. B. **Handball4All / H4A**, **SIS-Handball**, **nuLiga**) in Frage. Quellen werden über austauschbare *Adapter* angebunden.
+Es gibt **keinen eigenen Server, keinen Proxy und keine App**. Die Seite besteht nur aus statischen Dateien und ruft die Daten direkt vom Handy aus bei Handball4All ab (siehe Kapitel 3).
 
 ---
 
-## 2. Die zentrale technische Einschränkung: CORS
+## 2. Ausgangslage: Ergebnis der Quellenanalyse
 
-Ein Browser darf aus Sicherheitsgründen (*Same-Origin-Policy / CORS*) **keine fremden Webseiten auslesen**. JavaScript auf `meine-seite.de` kann den Inhalt von `handball.net` nur lesen, wenn `handball.net` das ausdrücklich erlaubt (Header `Access-Control-Allow-Origin`). Das ist bei Ergebnisportalen meist **nicht** der Fall.
+Analysiert wurde der Ticker-Link des Spiels vom 21.11.2026:
 
-Deshalb wird ein **Weiterleitungsdienst (Proxy)** gebraucht. Er ruft die Quellseiten ab und reicht sie an die eigene Webseite weiter. Der Proxy ist absichtlich minimal: Er speichert nichts dauerhaft, kennt keine Nutzer und leitet nur Anfragen an eine feste Liste erlaubter Adressen weiter.
+`https://spo.handball4all.de/service/ticker/index.html?token=539bfbddabe9671f0692bb3e87420e80`
 
-| Variante | Beschreibung | Vorteile | Nachteile |
-|---|---|---|---|
-| **P1: Serverless-Proxy (empfohlen)** | Webseite als statische Dateien (z. B. GitHub Pages, Cloudflare Pages, Netlify). Proxy als kleine Funktion (z. B. Cloudflare Worker, Netlify Function). | Unterwegs über Mobilfunk nutzbar, kostenlos im Free-Tarif, kein eigener Rechner nötig | Benötigt ein kostenloses Konto bei einem Anbieter |
-| **P2: Lokaler Rechner im Heimnetz** | Kleines Programm (z. B. Node.js oder Python) auf PC, Laptop oder Raspberry Pi liefert Webseite und Proxy aus. Aufruf am Handy z. B. über `http://192.168.178.20:8080`. | Läuft komplett zu Hause, kein externer Dienst | Funktioniert nur im eigenen WLAN (unterwegs nur per VPN); Rechner muss laufen |
-| **P3: Ohne Proxy** | Nur möglich, wenn eine Quelle eine öffentliche JSON-Schnittstelle **mit CORS-Freigabe** anbietet. | Am einfachsten | In Phase 0 prüfen; meist nicht gegeben |
+**TSV Neckartenzlingen – SG Hegensberg-Liebersbronn**, 14:00 Uhr, Richard-Hirschmann-Halle, Neckartenzlingen (H4A-Spiel-ID `9611841`).
 
-Webseite und Adapter sind so gebaut, dass alle drei Varianten **denselben Code** nutzen. Nur die Proxy-Adresse wird in einer Konfigurationsdatei eingetragen.
+### 2.1 Was die Ticker-Seite technisch macht
 
----
+- Die Seite `index.html` ist nur eine leere Hülle mit viel Werbung. Den Inhalt erzeugt JavaScript.
+- Die Daten kommen aus einer **JSON-Schnittstelle**:
+  `https://spo.handball4all.de/service/if_ticker_data.php?token=<TOKEN>&cmd=<BEFEHL>`
+- Die Schnittstelle sendet **`Access-Control-Allow-Origin: *`**. Damit darf jede Webseite sie direkt aus dem Browser abfragen, und **es wird kein Proxy gebraucht**.
+- Die Originalseite fragt per `POST` ab; `GET` funktioniert ebenfalls. Die Originalseite aktualisiert alle **15 Sekunden**, insgesamt 10-mal, und fordert danach zum Neuladen auf.
 
-## 3. Begriffe
+### 2.2 Befehle (`cmd`)
 
-| Begriff | Bedeutung |
-|---|---|
-| **Jugend / Altersklasse** | A- bis E-Jugend, jeweils männlich, weiblich oder gemischt; zusätzlich Minis. |
-| **Spielklasse / Staffel** | Konkrete Liga, z. B. „Bezirksoberliga Staffel 2“, mit eindeutiger ID in der Quelle. |
-| **Tickerereignis** | Tor, 7-Meter, Zeitstrafe, Gelbe/Rote/Blaue Karte, Auszeit, Halbzeit, Spielende. |
-| **Adapter** | JavaScript-Modul, das eine Quellseite ausliest und in das interne Datenmodell übersetzt. |
-| **Proxy** | Kleiner Dienst, der Quellseiten im Auftrag der Webseite abruft (Kapitel 2). |
-| **PWA** | „Progressive Web App“: Webseite, die über „Zum Home-Bildschirm“ wie eine App mit eigenem Symbol und ohne Safari-Leisten startet. |
-
----
-
-## 4. Funktionale Anforderungen
-
-Die Prioritäten: **MUSS** gehört zur ersten Version, **SOLL** ist für später geplant, **KANN** ist optional.
-
-### 4.1 Einrichtung und Auswahl
-
-| ID | Anforderung | Prio |
+| Befehl | Inhalt | Wird genutzt? |
 |---|---|---|
-| F-01 | Beim ersten Aufruf führt ein Assistent durch die Auswahl: **Verband → Saison → Altersklasse (Jugend + Geschlecht) → Staffel**. | MUSS |
-| F-02 | Die Auswahllisten werden aus Quelle B geladen. Falls das zu aufwendig ist, reicht für die erste Version eine **Konfigurationsdatei** (`config.json`) mit einer oder mehreren fest eingetragenen Staffeln. | MUSS (eine der beiden Formen) |
-| F-03 | Optional kann eine **Lieblingsmannschaft** gewählt werden, deren Spiele hervorgehoben werden. | MUSS |
-| F-04 | Mehrere Staffeln speicherbar, Wechsel per Auswahlmenü. | SOLL |
-| F-05 | Die Auswahl steckt auch in der Adresse (z. B. `…/#/staffel/12345?team=678`), damit man direkte Links als Lesezeichen anlegen oder an andere Eltern weitergeben kann. | SOLL |
-| F-06 | Die Auswahl wird lokal im Browser gespeichert (`localStorage`) und ist in den Einstellungen änderbar. | MUSS |
+| `getGameInfo` | Spielkopf: Mannschaften, Anwurf, Halle, Spiel-ID | **Ja** |
+| `getAllTickerMessages` | Alle Ereignisse des Spiels mit Spielzeit und Spielstand | **Ja** |
+| `getAllGameInfo` | Mannschaftsaufstellungen mit **Vor- und Nachnamen der Kinder** und Schiedsrichter | **Nein** (Datenschutz, siehe Kapitel 8) |
 
-### 4.2 Spielübersicht
+### 2.3 Antwortformate (Originalbeispiele)
 
-| ID | Anforderung | Prio |
-|---|---|---|
-| F-10 | Liste der Spiele, gruppiert nach Datum: Heim, Gast, Anwurfzeit, Halle, Status, Spielstand. | MUSS |
-| F-11 | Status: *geplant*, *läuft* (mit Halbzeit/Minute), *Halbzeit*, *beendet*, *abgesagt/verlegt*, *Wertung*. | MUSS |
-| F-12 | Laufende Spiele stehen oben, deutlich markiert („● LIVE“). | MUSS |
-| F-13 | Automatische Aktualisierung (siehe 4.5) und ein Knopf „Aktualisieren“. | MUSS |
-| F-14 | Spiele der Lieblingsmannschaft sind hervorgehoben. | MUSS |
+**`getGameInfo`**
 
-### 4.3 Spieldetail / Liveticker
-
-| ID | Anforderung | Prio |
-|---|---|---|
-| F-20 | Kopfbereich: Mannschaften, großer Spielstand, Halbzeitstand, Spielminute, Status. | MUSS |
-| F-21 | Tickerereignisse chronologisch, das neueste oben: Minute, Symbol, Mannschaft, ggf. Spieler/Nummer, Stand danach. | MUSS |
-| F-22 | Neue Ereignisse werden kurz farbig hervorgehoben. | SOLL |
-| F-23 | Kleine Statistik: 7-Meter, Zeitstrafen, Auszeiten je Mannschaft. | SOLL |
-| F-24 | Ohne Ticker wird nur der Spielstand aus Quelle B angezeigt, mit dem Hinweis „Kein Liveticker verfügbar“. | MUSS |
-| F-25 | Link „Originalseite öffnen“ als Quellenangabe. | MUSS |
-| F-26 | **Bildschirm wach halten** (Screen Wake Lock API) während eines laufenden Spiels, per Schalter. | SOLL |
-
-### 4.4 Tabelle
-
-| ID | Anforderung | Prio |
-|---|---|---|
-| F-30 | Tabelle: Platz, Mannschaft, Spiele, S/U/N, Tore, Differenz, Punkte. | MUSS |
-| F-31 | Vorläufige Live-Tabelle mit den aktuellen Spielständen, gekennzeichnet als „vorläufig“. | KANN |
-
-### 4.5 Aktualisierung
-
-| ID | Anforderung | Prio |
-|---|---|---|
-| F-40 | Ein Spiel läuft und die Seite ist sichtbar: Abruf alle **15 s** (einstellbar 10–60 s). | MUSS |
-| F-41 | Spieltag ohne laufendes Spiel: alle **5 min**. Sonst nur beim Öffnen und manuell. | MUSS |
-| F-42 | Ist die Seite nicht sichtbar (Tab im Hintergrund, Bildschirm aus), wird **nicht** abgerufen (Page Visibility API). Beim Zurückkehren wird sofort aktualisiert. | MUSS |
-| F-43 | Anzeige „Aktualisiert vor 12 s“. Sind die Daten älter als 2 min, erscheint ein Warnhinweis. | MUSS |
-| F-44 | Bei Fehlern wird schrittweise länger gewartet (Backoff bis max. 2 min). | MUSS |
-
-### 4.6 Offline und Fehler
-
-| ID | Anforderung | Prio |
-|---|---|---|
-| F-50 | Die Webseite selbst funktioniert offline (Service Worker). Die zuletzt geladenen Daten werden aus dem lokalen Speicher angezeigt, mit dem Hinweis „Offline – Stand von 14:32 Uhr“. | MUSS |
-| F-51 | Fällt eine Quelle aus oder hat sich ihre Struktur geändert, wird eine verständliche Meldung angezeigt; die andere Quelle wird weiter genutzt. | MUSS |
-
-### 4.7 Bewusst nicht enthalten
-
-Diese Funktionen gibt es nur für native Apps oder sie brauchen einen dauerhaft laufenden Server. Sie entfallen gegenüber Fassung 1.0:
-
-- Live Activity und Dynamic Island
-- Home-Screen-Widgets
-- Aktualisierung im Hintergrund bei geschlossener Seite
-
-**Push-Mitteilungen** sind zwar seit iOS 16.4 für Web-Apps auf dem Home-Bildschirm möglich, setzen aber einen Server voraus, der die Spiele dauerhaft beobachtet. → **KANN**, nur falls später doch ein Server betrieben wird.
-
----
-
-## 5. Nicht-funktionale Anforderungen
-
-| ID | Anforderung |
-|---|---|
-| NF-01 | **Zielgerät:** Safari ab iOS 17 auf dem iPhone. Funktioniert zusätzlich in aktuellen Desktop-Browsern. |
-| NF-02 | **Mobile first:** Bedienung mit dem Daumen, Tippflächen mindestens 44 × 44 pt, keine horizontale Scrollleiste, Berücksichtigung der „Safe Areas“ (Notch/Dynamic Island). |
-| NF-03 | **PWA:** `manifest.webmanifest` mit Name, Symbol (180 × 180 px Apple-Touch-Icon) und `display: standalone`, damit die Seite vom Home-Bildschirm wie eine App startet. |
-| NF-04 | **Leistung:** Erste Anzeige aus dem Cache < 1 s, gesamte Seite (ohne Daten) < 200 KB. |
-| NF-05 | **Darstellung:** Hell- und Dunkelmodus nach Systemeinstellung, Schriftgröße folgt der Systemeinstellung, Kontraste nach WCAG AA. |
-| NF-06 | **Datenschutz:** Keine Konten, kein Tracking, keine Cookies, keine externen Schriftarten oder Skripte. Daten liegen nur lokal im Browser. Der Proxy protokolliert keine IP-Adressen (bzw. nur kurzfristig zur Fehlersuche). |
-| NF-07 | **Wartbarkeit:** Jede Quelle ist ein eigenes Adapter-Modul. CSS-Selektoren und URL-Muster stehen zentral als Konstanten im Adapter. |
-| NF-08 | **Rücksicht auf Quellen:** Der Proxy hält Antworten 10 s im Zwischenspeicher, damit mehrere Handys nicht mehrfach abrufen. Er sendet einen eindeutigen User-Agent und beachtet `robots.txt` und die Nutzungsbedingungen. |
-| NF-09 | **Sicherheit:** Der Proxy leitet **nur** an eine feste Liste erlaubter Hosts weiter (kein offener Proxy). Nur `GET`-Anfragen. Antwortgröße begrenzt (z. B. 2 MB). Inhalte aus Quellseiten werden nie ungeprüft als HTML eingefügt, sondern nur als Text (`textContent`), um Cross-Site-Scripting zu vermeiden. |
-
----
-
-## 6. Architektur
-
-### 6.1 Übersicht
-
-```
-iPhone (Safari / Home-Bildschirm-App)
-┌──────────────────────────────────────────────┐
-│  Web-App (statische Dateien)                 │
-│  ┌──────────┐ ┌──────────┐ ┌──────────────┐  │
-│  │ UI       │ │ Merger   │ │ Adapter A/B  │  │
-│  │ (Views)  │◄┤          │◄┤ (DOMParser)  │  │
-│  └──────────┘ └──────────┘ └──────┬───────┘  │
-│  localStorage / IndexedDB         │          │
-│  Service Worker (Offline)         │          │
-└───────────────────────────────────┼──────────┘
-                                    │ fetch("/proxy?url=…")
-                          ┌─────────▼──────────┐
-                          │  Proxy (P1 oder P2)│
-                          │  - Host-Allowlist  │
-                          │  - 10-s-Cache      │
-                          └───┬────────────┬───┘
-                              │            │
-                      ┌───────▼───┐  ┌─────▼─────┐
-                      │ Quelle A  │  │ Quelle B  │
-                      │ Ticker    │  │ Ergebnisse│
-                      └───────────┘  └───────────┘
+```json
+{
+  "class_lname": "Neckartenzlingen",
+  "home_lname": "TSV Neckartenzlingen",
+  "guest_lname": "SG Hegensberg-Liebersbronn",
+  "datetime": "2026-11-21 14:00:00",
+  "gym_name": "Richard-Hirschmann-Halle",
+  "gym_town": "Neckartenzlingen",
+  "report": { "refereeA": { "name": null, "prename": null }, "refereeB": { "...": null } },
+  "id": "9611841",
+  "status": 0,
+  "status_descripion": "OK"
+}
 ```
 
-**Grundsatz:** Der Proxy ist „dumm“ und reicht die Antworten nur durch. Das Auslesen geschieht **im Browser auf dem Handy** mit dem eingebauten `DOMParser` (HTML) bzw. `JSON.parse`. So muss bei Änderungen einer Quellseite nur die Webseite neu hochgeladen werden.
+- `datetime` ist Ortszeit (Europe/Berlin) und hat keine Zeitzonenangabe.
+- `class_lname` enthält hier **nicht** den Liganamen; das Feld wird nicht angezeigt.
+- Der Feldname ist in der Quelle falsch geschrieben (`status_descripion`) und muss genau so ausgelesen werden.
 
-*Ausnahme:* Erzeugt eine Quellseite ihre Inhalte erst per JavaScript und gibt es keine JSON-Schnittstelle, kann der Browser sie nicht auslesen. Dann muss der Proxy die Seite mit einem Headless-Browser (z. B. Playwright) rendern. Das geht nur bei Variante P2 oder bei einem Anbieter, der das unterstützt, und wird in Phase 0 geklärt.
+**`getAllTickerMessages`**: ein Array, chronologisch, ältestes Ereignis zuerst:
 
-### 6.2 Technologie
+```json
+[
+  { "game_time": "0",    "home_score": "0",  "guest_score": "0",  "message": "Spielzeit gestartet", "stops_time": false, "status": 0, "status_descripion": "OK" },
+  { "game_time": "15",   "home_score": "1",  "guest_score": "0",  "message": "Tor für die Heimmannschaft durch die Nummer 11", "stops_time": false, "...": "" },
+  { "game_time": "400",  "home_score": "4",  "guest_score": "1",  "message": "Mannschafts-Auszeit der Heimmannschaft", "stops_time": true, "...": "" },
+  { "game_time": "1200", "home_score": "12", "guest_score": "12", "message": "Spielstand 1. Halbzeit", "stops_time": false, "...": "" }
+]
+```
 
-| Bereich | Technologie |
+- Alle Zahlen kommen als **Text** (`"15"`) und müssen in Zahlen umgewandelt werden.
+- `game_time` ist die **Spielzeit in Sekunden** seit Anpfiff, durchgehend über beide Halbzeiten (1200 s = 20:00 = Ende der 1. Halbzeit).
+- `home_score`/`guest_score` sind der Stand **nach** dem Ereignis.
+- `stops_time: true` bedeutet, dass die Uhr nach diesem Ereignis steht.
+- Mehrere Ereignisse können dieselbe `game_time` haben (z. B. Uhr gestoppt → Auszeit → Tor → Uhr gestartet).
+
+**Fehlerfälle**
+
+| Fall | Antwort |
 |---|---|
-| Sprache | JavaScript (ES-Module) oder TypeScript |
-| Aufbau | **Ohne Framework** (Vanilla JS mit Web Components oder einfachen Render-Funktionen) **oder** ein kleines Framework wie Preact/Svelte. Entscheidung durch den Entwickler; Ziel ist eine kleine, schnelle Seite. |
-| Build | Optional Vite. Ohne Build-Schritt muss die Seite trotzdem lauffähig sein, falls Vanilla JS gewählt wird. |
-| HTML-Parsing | `DOMParser` (im Browser eingebaut, keine Bibliothek nötig) |
-| Speicher | `localStorage` für Einstellungen, `IndexedDB` (oder `localStorage`) für den Daten-Cache |
-| Offline | Service Worker: App-Dateien „cache first“, Daten „network first“ mit Cache-Rückfall |
-| Bildschirm wach halten | Screen Wake Lock API (`navigator.wakeLock`) |
-| Proxy P1 | Cloudflare Worker oder Netlify Function (JavaScript, ca. 50 Zeilen) |
-| Proxy P2 | Node.js (ohne Abhängigkeiten oder mit Express) bzw. Python, der zugleich die statischen Dateien ausliefert |
-| Tests | Vitest (Adapter, Merger) mit gespeicherten Beispielseiten; Playwright für Oberflächentests in WebKit (entspricht Safari) im iPhone-Format |
+| Ungültiger oder unbekannter Token, `getGameInfo` | `{"status":3,"status_descripion":"No ticker data"}` |
+| Ungültiger oder unbekannter Token, `getAllTickerMessages` | `[]` |
+| Spiel noch nicht begonnen | vermutlich `[]` (**prüfen**) |
 
-### 6.3 Projektstruktur (Vorschlag)
+### 2.4 Beobachtete Ereignistexte
+
+Die Texte sind fest formuliert und lassen sich mit regulären Ausdrücken zuverlässig auswerten:
+
+| Text in der Quelle | Ereignistyp | Ausgewertete Angaben |
+|---|---|---|
+| `Spielzeit gestartet` | `clockStart` | – |
+| `Spielzeit gestoppt` | `clockStop` | – |
+| `Tor für die Heimmannschaft durch die Nummer 11` | `goal` | Seite, Nummer |
+| `Erfolgreicher 7m-Wurf für die Heimmannschaft durch die Nummer 19` | `penaltyGoal` | Seite, Nummer |
+| `7m-Wurf … ` (nicht verwandelt; Text laut Originalcode, noch nicht beobachtet) | `penaltyMissed` | Seite, Nummer |
+| `Verwarnung für die Nummer 29 der Gastmannschaft` | `warning` (Gelbe Karte) | Seite, Nummer |
+| `2-min Strafe für die Nummer 27 der Gastmannschaft` | `suspension` | Seite, Nummer |
+| `Disqualifikation …` / `Disqualifikation mit Bericht …` (laut Originalcode) | `disqualification` | Seite, Nummer |
+| `Mannschafts-Auszeit der Heimmannschaft` | `timeout` | Seite |
+| `Spielstand 1. Halbzeit` | `halftime` | – |
+| `Spielstand 2. Halbzeit` (**vermutet**, bei Spielende prüfen) | `fullTime` | – |
+| alles andere | `other` | Originaltext anzeigen |
+
+„Heimmannschaft“ oder „Gastmannschaft“ im Text legt die Seite fest. Die Nummer ist eine Zahl oder bei Offiziellen ein Buchstabe (A, B, C …).
+
+### 2.5 Spielplan und Tabelle (frühere „Quelle B“)
+
+- Die frühere Handball4All-Ergebnisseite (`spo.handball4all.de/Spielbetrieb`) **leitet inzwischen auf handball.net weiter**.
+- **handball.net** lehnt automatisierte Abrufe ab (HTTP 403 durch den Schutzdienst; die frühere Daten-Schnittstelle `/a/sportdata/…` antwortet mit „410 Gone“). Ohne CORS-Freigabe könnte ein Browser die Seite ohnehin nicht auslesen.
+- **Folge:** Spielplan und Tabelle werden in Version 1 **nicht** automatisch geladen. Die Web-App verlinkt dafür auf die Vereins- bzw. Mannschaftsseite bei handball.net. Eine automatische Anbindung kommt nur mit Erlaubnis oder einer offiziellen Schnittstelle in Frage (siehe Kapitel 13).
+
+---
+
+## 3. Architektur
+
+```
+iPhone (Safari / Home-Bildschirm)
+┌──────────────────────────────────────────┐
+│  Statische Web-App (HTML/CSS/JS)         │
+│  ┌────────┐  ┌──────────┐  ┌───────────┐ │
+│  │ UI     │◄─┤ Auswerter│◄─┤ H4A-Client│─┼──► spo.handball4all.de
+│  └────────┘  │ (Parser) │  │ (fetch)   │ │    /service/if_ticker_data.php
+│              └──────────┘  └───────────┘ │    (CORS: *)
+│  localStorage  ·  Service Worker         │
+└──────────────────────────────────────────┘
+```
+
+- **Hosting:** beliebiger Anbieter für statische Dateien, z. B. **GitHub Pages** direkt aus diesem Repository, Cloudflare Pages oder Netlify. HTTPS ist Pflicht, damit Service Worker und „Bildschirm wach halten“ in Safari funktionieren.
+- **Kein Build-Schritt nötig:** reines HTML, CSS und JavaScript (ES-Module). Keine Frameworks, keine externen Schriftarten, kein Tracking.
+- **Gesamtgröße** der Seite unter 100 KB.
+
+### 3.1 Dateien
 
 ```
 /
 ├─ index.html
 ├─ manifest.webmanifest
-├─ sw.js                    Service Worker
-├─ config.json              Proxy-URL, Standard-Staffel, Intervalle
-├─ icons/                   App-Symbole
+├─ sw.js                     Service Worker (Offline-Hülle)
+├─ config.js                 Lieblingsverein, Halbzeitlänge, Intervalle, Links
+├─ icons/apple-touch-icon.png (180×180), icon-512.png
 ├─ src/
-│  ├─ main.js               Start, Routing (#/…)
-│  ├─ store.js              Einstellungen + Cache
-│  ├─ poller.js             Aktualisierungstakt, Backoff, Sichtbarkeit
-│  ├─ merger.js             Zusammenführung A + B
-│  ├─ model.js              Datentypen (JSDoc oder TypeScript)
-│  ├─ adapters/
-│  │  ├─ results-<quelle>.js
-│  │  └─ ticker-<quelle>.js
-│  └─ views/
-│     ├─ setup.js  games.js  game-detail.js  standings.js
+│  ├─ main.js                Start, Routing, Polling-Steuerung
+│  ├─ h4a.js                 Abruf der Schnittstelle
+│  ├─ parse.js               Auswertung der Ereignistexte → Datenmodell
+│  ├─ clock.js               Spielzeit-Berechnung und laufende Uhr
+│  ├─ store.js               localStorage (Spiele, Einstellungen, Cache)
+│  └─ view.js                Darstellung
 ├─ styles/app.css
-├─ proxy/
-│  ├─ worker.js             Variante P1
-│  └─ server.js             Variante P2
 └─ tests/
-   ├─ fixtures/             gespeicherte HTML/JSON-Beispiele
-   └─ *.test.js
+   ├─ fixtures/              echte Antworten (ohne Personendaten)
+   └─ parse.test.js, clock.test.js
 ```
 
-### 6.4 Adapter-Schnittstelle
+### 3.2 Konfiguration (`config.js`)
 
 ```js
-/** Quelle B */
-export const resultsSource = {
-  id: "beispielportal",
-  async leagues({ association, season, youth, gender }) { /* → League[] */ },
-  async games(leagueId)     { /* → Game[] */ },
-  async standings(leagueId) { /* → StandingRow[] */ },
+export const config = {
+  favoriteClub: "TSV Neckartenzlingen",  // wird hervorgehoben, Heim/Gast-Erkennung
+  teamLabel: "gemischte D-Jugend",
+  halfLengthMin: 20,                      // D-Jugend: 2 × 20 min (am 21.11.2026 bestätigt: Halbzeit bei 1200 s)
+  pollIntervalSec: 15,
+  apiBase: "https://spo.handball4all.de/service/if_ticker_data.php",
+  scheduleUrl: "",                        // Link zur Mannschaftsseite auf handball.net (vom Nutzer einzutragen)
 };
-
-/** Quelle A */
-export const tickerSource = {
-  id: "beispielticker",
-  async findTicker(game)  { /* → TickerRef | null */ },
-  async snapshot(tickerRef) { /* → TickerSnapshot */ },
-};
-
-/** Gemeinsame Hilfsfunktion: alle Abrufe laufen über den Proxy */
-export async function fetchViaProxy(url) {
-  const res = await fetch(`${config.proxyUrl}?url=${encodeURIComponent(url)}`);
-  if (!res.ok) throw new SourceError(url, res.status);
-  return res.text();
-}
 ```
-
-**Robustheit:** Jeder Adapter prüft seine Ergebnisse auf Plausibilität (Stände ≥ 0, Minute passend zur Spielzeit, Namen nicht leer). Schlägt die Prüfung fehl, wird eine `SourceError` geworfen, der letzte gültige Stand bleibt sichtbar und die Seite zeigt einen Hinweis.
-
-### 6.5 Zusammenführung (Merger)
-
-1. **Quelle B ist führend** für Spielplan und Spiel-IDs.
-2. **Zuordnung Ticker ↔ Spiel:** zuerst über eine gemeinsame Spielnummer. Sonst über Datum + Anwurfzeit (±30 min) + normalisierte Mannschaftsnamen: Kleinschreibung, Präfixe wie „HSG/TV/SG/JSG“ entfernen, Umlaute vereinheitlichen, Mannschaftsnummern („2“, „II“) beachten, Ähnlichkeitsvergleich. Unsichere Treffer werden nicht übernommen. Für Sonderfälle gibt es eine manuelle Zuordnung in `config.json`.
-3. **Während des Spiels** gilt der Spielstand aus dem Ticker (aktueller).
-4. **Nach Spielende** gilt Quelle B (offizielles Ergebnis). Bei Abweichung erscheint der Hinweis „Ergebnis laut Verband“.
-5. Jeder Wert führt `source` und `fetchedAt` mit.
-
-### 6.6 Proxy – Anforderungen im Detail
-
-| Punkt | Vorgabe |
-|---|---|
-| Aufruf | `GET /proxy?url=<URL-kodiert>` |
-| Allowlist | Nur Hosts der festgelegten Quellen (z. B. `["www.beispielportal.de", "ticker.beispiel.de"]`), sonst `403` |
-| Antwort | Originalinhalt und Content-Type, plus `Access-Control-Allow-Origin: <eigene Domain>` |
-| Zwischenspeicher | 10 s für Ticker, 60 s für Spielpläne/Tabellen |
-| Zeichenkodierung | Falls die Quelle ISO-8859-1 liefert, in UTF-8 umwandeln oder den Zeichensatz im Header korrekt weitergeben |
-| Begrenzung | Max. 2 MB pro Antwort, Timeout 8 s, einfache Ratenbegrenzung pro IP |
-| Protokolle | Keine dauerhafte Speicherung personenbezogener Daten |
 
 ---
 
-## 7. Datenmodell
+## 4. Funktionale Anforderungen
 
-Beschrieben als JSDoc-Typen; bei TypeScript entsprechend als `type`/`interface`.
+Die Prioritäten: **MUSS** gehört zu Version 1, **SOLL** ist für später geplant, **KANN** ist optional.
+
+### 4.1 Spiel hinzufügen
+
+Jedes Spiel hat einen eigenen **Token**. Er steht im Ticker-Link, den der Verein oder handball.net für das Spiel bereitstellt.
+
+| ID | Anforderung | Prio |
+|---|---|---|
+| F-01 | Ein Eingabefeld „Ticker-Link einfügen“ nimmt den kompletten Link entgegen. Der Token (32 Hex-Zeichen) wird daraus gelesen. Ein nackter Token wird ebenfalls akzeptiert. | MUSS |
+| F-02 | Aufruf mit `…/index.html?token=<TOKEN>` öffnet das Spiel direkt. So kann man **im Original-Link einfach den Anfang austauschen** oder ein Lesezeichen anlegen. | MUSS |
+| F-03 | Nach dem Einfügen wird `getGameInfo` abgefragt. Bei `status ≠ 0` erscheint die Meldung „Für diesen Link gibt es (noch) keine Tickerdaten“, und der Token wird trotzdem gespeichert, weil der Ticker meist erst kurz vor Anpfiff startet. | MUSS |
+| F-04 | Gespeicherte Spiele erscheinen als Liste (neuestes zuerst) mit Datum, Gegner und Endstand. Spiele lassen sich per Wischen löschen. Spiele, die älter als 60 Tage sind, werden automatisch entfernt. | MUSS |
+| F-05 | Einfügen aus der Zwischenablage per Knopf („Link aus Zwischenablage“). | SOLL |
+
+### 4.2 Spielansicht (Kernfunktion)
+
+| ID | Anforderung | Prio |
+|---|---|---|
+| F-10 | Kopfbereich: Heim- und Gastmannschaft, **sehr großer Spielstand** (mindestens 64 pt), Spielzeit `mm:ss`, Phase (*vor dem Spiel*, *1. HZ*, *Halbzeit*, *2. HZ*, *beendet*), Halbzeitstand. | MUSS |
+| F-11 | Ist der TSV Neckartenzlingen beteiligt, wird er farbig hervorgehoben. Der Spielstand wird aus Sicht des Vereins gefärbt (vorn = grün, hinten = rot, unentschieden = neutral). | MUSS |
+| F-12 | **Laufende Uhr:** Ist das letzte Uhr-Ereignis `clockStart`, zählt die Uhr zwischen zwei Abrufen lokal weiter (Zeit seit dem letzten Abruf addieren, höchstens bis zum Halbzeitende). Bei `clockStop`, Auszeit oder Halbzeit bleibt sie stehen. Eine stehende Uhr wird blass mit „⏸“ angezeigt. | MUSS |
+| F-13 | Ereignisliste, das neueste oben. Je Zeile: Spielzeit, Symbol, Seite (Heim/Gast farblich), Text, Spielstand nach dem Ereignis. „Spielzeit gestartet/gestoppt“ ist standardmäßig ausgeblendet (Schalter „Alle Ereignisse“). | MUSS |
+| F-14 | Trennzeile „Halbzeit 12 : 12“ zwischen den Halbzeiten. | MUSS |
+| F-15 | Spielernummern werden angezeigt („Tor durch Nr. 11“). **Namen werden nicht angezeigt** (siehe Kapitel 8). | MUSS |
+| F-16 | Neue Ereignisse seit dem letzten Abruf werden für 5 s hervorgehoben. Bei einem Tor der Lieblingsmannschaft vibriert das Gerät kurz, sofern unterstützt (abschaltbar). | SOLL |
+| F-17 | Statistik je Mannschaft: Tore, 7-Meter (verwandelt/gesamt), Verwarnungen, 2-Minuten-Strafen, Auszeiten. Zusätzlich eine Torschützenliste nach Nummer. | SOLL |
+| F-18 | Kleine Verlaufsgrafik (Tordifferenz über die Spielzeit) als SVG. | KANN |
+| F-19 | Links „Original-Ticker öffnen“ und „Spielplan & Tabelle (handball.net)“ (falls `scheduleUrl` gesetzt) als Quellenangabe. | MUSS |
+| F-20 | Schalter **„Bildschirm an lassen“** (Screen Wake Lock API), während das Spiel läuft. | SOLL |
+| F-21 | Knopf „Teilen“ (Web Share API): Er teilt den Link zur Spielansicht, z. B. in die Eltern-WhatsApp-Gruppe. | SOLL |
+
+### 4.3 Aktualisierung
+
+| ID | Anforderung | Prio |
+|---|---|---|
+| F-30 | Spiel läuft und die Seite ist sichtbar: `getAllTickerMessages` alle **15 s** abfragen, genau wie das Original. | MUSS |
+| F-31 | Vor dem Spiel: bis 30 min vor Anwurf alle 5 min abfragen, danach alle 30 s. | MUSS |
+| F-32 | Spiel beendet (siehe 5.3): keine automatischen Abrufe mehr. Endstand und Ereignisse werden lokal gespeichert. | MUSS |
+| F-33 | Ist die Seite nicht sichtbar (anderer Tab, Bildschirm aus), wird **nicht** abgefragt (`visibilitychange`). Beim Zurückkehren wird sofort aktualisiert. | MUSS |
+| F-34 | Anzeige „Aktualisiert vor 8 s“. Ab 60 s ohne erfolgreichen Abruf erscheint ein gelber Hinweis „Verbindung prüfen“. | MUSS |
+| F-35 | Bei Netzwerkfehlern wird schrittweise länger gewartet (15 → 30 → 60 → 120 s). Nach dem ersten Erfolg gilt wieder der normale Takt. | MUSS |
+| F-36 | Gibt es im laufenden Spiel 20 min keine neue Meldung, wird nur noch alle 2 min abgefragt (der Ticker wurde vermutlich nicht weitergeführt). | SOLL |
+
+### 4.4 Offline
+
+| ID | Anforderung | Prio |
+|---|---|---|
+| F-40 | Die Seite selbst lädt auch ohne Netz (Service Worker cacht die App-Dateien). Die API-Antworten werden **nicht** vom Service Worker gecacht, sondern in `localStorage` gespeichert. | MUSS |
+| F-41 | Ohne Netz werden die zuletzt gespeicherten Daten mit dem Hinweis „Offline – Stand 14:32 Uhr“ angezeigt. | MUSS |
+
+### 4.5 Bewusst nicht enthalten (Version 1)
+
+- Automatischer Spielplan und automatische Tabelle (siehe 2.5)
+- Push-Mitteilungen, Live Activity und Widgets: Dafür bräuchte man einen Server bzw. eine native App.
+- Spielernamen aus `getAllGameInfo`
+
+---
+
+## 5. Auswertungslogik
+
+### 5.1 Datenmodell
 
 ```js
-/** @typedef {"a"|"b"|"c"|"d"|"e"|"minis"} Youth */
-/** @typedef {"male"|"female"|"mixed"} Gender */
-/** @typedef {{ youth: Youth, gender: Gender, label: string }} AgeGroup */   // "männliche B-Jugend"
+/** @typedef {{ token: string, gameId: string, home: string, away: string,
+ *              kickoff: string,      // "2026-11-21T14:00:00" (Ortszeit)
+ *              venue: string, addedAt: string }} SavedGame */
 
-/** @typedef {{ id: string, name: string, ageGroup: AgeGroup, season: string,
- *              halfLengthMin: number, sourceUrl: string }} League */
-// halfLengthMin: A-Jugend 30, B/C-Jugend 25, D/E-Jugend oft 20 (verbandsabhängig, konfigurierbar)
-
-/** @typedef {{ id: string, name: string, shortName?: string }} Team */
-
-/** @typedef {"scheduled"|"live"|"halftime"|"finished"|"cancelled"|"awarded"} GameState */
-/** @typedef {{ home: number, away: number }} Score */
+/** @typedef {"clockStart"|"clockStop"|"goal"|"penaltyGoal"|"penaltyMissed"|"warning"|
+ *            "suspension"|"disqualification"|"timeout"|"halftime"|"fullTime"|"other"} EventType */
 
 /** @typedef {{
- *   id: string, gameNumber?: string, leagueId: string,
- *   home: Team, away: Team,
- *   kickoff: string,            // ISO 8601, Anzeige in Europe/Berlin
- *   venue?: string,
- *   state: GameState, minute?: number, half?: 1|2,
- *   score?: Score, halftimeScore?: Score,
- *   ticker?: TickerRef,
- *   scoreSource: "ticker"|"results",
- *   fetchedAt: string
- * }} Game */
-
-/** @typedef {"goal"|"penaltyGoal"|"penaltyMissed"|"suspension"|"yellowCard"|
- *            "redCard"|"blueCard"|"timeout"|"halftime"|"gameStart"|"gameEnd"|"other"} TickerEventType */
-
-/** @typedef {{
- *   id: string,                 // stabil: aus der Quelle oder Hash(Zeit+Typ+Team+Stand)
- *   clock: string,              // "23:41"
- *   type: TickerEventType,
- *   side?: "home"|"away",
- *   playerName?: string, playerNumber?: number,
- *   scoreAfter?: Score,
- *   text?: string               // Originaltext als Rückfall
+ *   seq: number,                 // Position im Array = stabile ID (Quelle hängt nur hinten an)
+ *   t: number,                   // game_time in Sekunden
+ *   type: EventType,
+ *   side: "home"|"away"|null,
+ *   number: string|null,         // "11", "A"
+ *   home: number, away: number,  // Stand nach dem Ereignis
+ *   stopsTime: boolean,
+ *   raw: string                  // Originaltext
  * }} TickerEvent */
 
-/** @typedef {{ sourceId: string, tickerId: string, url: string }} TickerRef */
-/** @typedef {{ events: TickerEvent[], state: GameState, score?: Score, fetchedAt: string }} TickerSnapshot */
-
-/** @typedef {{ rank: number, team: Team, played: number, won: number, drawn: number, lost: number,
- *              goalsFor: number, goalsAgainst: number, points: string }} StandingRow */  // "14:4"
+/** @typedef {{
+ *   phase: "pre"|"first"|"halftime"|"second"|"finished",
+ *   clockSec: number, clockRunning: boolean,
+ *   score: {home:number, away:number}, halftime: {home:number, away:number}|null,
+ *   events: TickerEvent[], fetchedAt: number
+ * }} GameState */
 ```
 
-**Lokale Speicherung:**
+### 5.2 Erkennungsregeln (in `parse.js`)
 
-| Schlüssel | Inhalt |
+```js
+const SIDE = { Heimmannschaft: "home", Gastmannschaft: "away" };
+const RULES = [
+  [/^Spielzeit gestartet/,                                   "clockStart"],
+  [/^Spielzeit gestoppt/,                                    "clockStop"],
+  [/^Erfolgreicher 7m-Wurf für die (\w+) durch die Nummer (\S+)/, "penaltyGoal"],
+  [/^7m-Wurf .*?(Heimmannschaft|Gastmannschaft).*?Nummer (\S+)/,  "penaltyMissed"],
+  [/^Tor für die (\w+) durch die Nummer (\S+)/,             "goal"],
+  [/^Verwarnung für die Nummer (\S+) der (\w+)/,            "warning"],
+  [/^2-min Strafe für die Nummer (\S+) der (\w+)/,          "suspension"],
+  [/^Disqualifikation.*?Nummer (\S+) der (\w+)/,            "disqualification"],
+  [/^Mannschafts-Auszeit der (\w+)/,                        "timeout"],
+  [/^Spielstand 1\. Halbzeit/,                              "halftime"],
+  [/^Spielstand 2\. Halbzeit|^Spielende/,                   "fullTime"],
+];
+// Reihenfolge der Gruppen (Seite/Nummer) unterscheidet sich je Regel → pro Regel festlegen.
+// Unbekannte Texte → type "other", raw anzeigen, in der Konsole protokollieren.
+```
+
+### 5.3 Spielphase und Uhr
+
+- **pre:** keine Ereignisse.
+- **first:** Ereignisse vorhanden, noch kein `halftime`.
+- **halftime:** letztes Spielereignis ist `halftime`, oder `t ≥ halfLength` und die Uhr steht.
+- **second:** nach `halftime` wieder `clockStart`.
+- **finished:** `fullTime`-Ereignis vorhanden **oder** `t ≥ 2 × halfLength` und Uhr gestoppt **oder** mehr als 2 h seit Anwurf ohne neue Meldung.
+- **Spielstand:** `home_score`/`guest_score` des **letzten** Ereignisses.
+- **Halbzeitstand:** Stand des `halftime`-Ereignisses.
+- **Uhr:** `t` des letzten Ereignisses. Läuft die Uhr (letztes Uhr-Ereignis `clockStart`, `stops_time` des letzten Ereignisses `false`), kommt `(jetzt − fetchedAt)` hinzu, begrenzt auf das Ende der laufenden Halbzeit.
+- **Plausibilität:** Spielstände dürfen nicht sinken, `t` darf nicht sinken. Bei einem Verstoß das Ereignis trotzdem anzeigen, aber für Stand und Uhr das letzte plausible Ereignis verwenden.
+
+---
+
+## 6. Oberfläche
+
+```
+┌───────────────────────────────┐   ┌───────────────────────────────┐
+│ ‹ Spiele        ☀ an   ⤴ Teilen│   │ Neckartenzlingen Live    ＋   │
+│                               │   │ ┌───────────────────────────┐ │
+│ TSV Neckar-      SG Hegens-   │   │ │ Ticker-Link einfügen…     │ │
+│ tenzlingen       berg-Liebers.│   │ └───────────────────────────┘ │
+│                               │   │  [Link aus Zwischenablage]    │
+│        19  :  15              │   │                               │
+│     ● 2. HZ  30:29            │   │ ● LIVE  Sa 21.11. 14:00       │
+│     Halbzeit 12 : 12          │   │   TSV – SG Hegensberg  19:15  │
+│  Aktualisiert vor 6 s         │   │                               │
+│ ───────────────────────────── │   │   Sa 14.11. 11:00             │
+│ 30:29 ● Tor Nr. 2      19:15  │   │   TV X – TSV          17:21   │
+│ 29:40 ● Tor Nr. 18     18:15  │   │ …                             │
+│ 23:56 ◎ 7m-Tor Nr. 19  15:13  │   │                               │
+│ 22:05 ⏱ 2 Min. Nr. 27 (Gast)  │   │ Spielplan & Tabelle ↗         │
+│ ── Halbzeit 12 : 12 ───────── │   │                               │
+│ …                             │   │                               │
+│ Original-Ticker ↗             │   │                               │
+└───────────────────────────────┘   └───────────────────────────────┘
+        Spielansicht                        Startseite / Spiele
+```
+
+- Hell- und Dunkelmodus nach Systemeinstellung, Schrift skaliert mit, Tippflächen mindestens 44 pt.
+- Die Safe Areas (Notch/Dynamic Island) werden berücksichtigt: `viewport-fit=cover` und `env(safe-area-inset-*)`.
+- `manifest.webmanifest` mit `display: "standalone"`, Name, Symbol und Farbe. Zusätzlich `apple-mobile-web-app-capable` und `apple-touch-icon`.
+
+---
+
+## 7. Nicht-funktionale Anforderungen
+
+| ID | Anforderung |
 |---|---|
-| `settings` | gewählte Staffeln, Lieblingsmannschaft, Intervall, Wake-Lock-Schalter |
-| `cache:league:<id>:games` | letzte Spielliste + `fetchedAt` |
-| `cache:league:<id>:standings` | letzte Tabelle |
-| `cache:game:<id>:ticker` | letzter Ticker-Snapshot (nach 7 Tagen automatisch löschen) |
+| NF-01 | Safari ab iOS 17; funktioniert zusätzlich in aktuellen Desktop-Browsern. |
+| NF-02 | Erste Anzeige (aus dem Cache) < 1 s, Seite < 100 KB, keine externen Abhängigkeiten. |
+| NF-03 | **Schonender Umgang mit der Quelle:** höchstens 1 Anfrage pro 15 s und Gerät, nur bei sichtbarer Seite, kein Abruf nach Spielende. Es wird nur `getGameInfo` (einmal) und `getAllTickerMessages` genutzt. |
+| NF-04 | **Sicherheit:** Texte aus der Quelle nur über `textContent` einfügen, nie als HTML. Content-Security-Policy: `default-src 'self'; connect-src https://spo.handball4all.de`. |
+| NF-05 | **Datenschutz:** keine Cookies, kein Tracking, keine Analyse-Dienste. `localStorage` enthält nur Tokens, Spielköpfe, Ereignisse und Einstellungen. |
+| NF-06 | Fehler in der Auswertung dürfen die Seite nie zum Absturz bringen. Unbekannte Ereignisse werden im Rohtext angezeigt. |
 
 ---
 
-## 8. Bedienung auf dem iPhone
+## 8. Datenschutz und Rechtliches
 
-1. Webseite in Safari öffnen.
-2. **Teilen → „Zum Home-Bildschirm“**. Danach startet die Seite mit eigenem Symbol im Vollbild wie eine App.
-3. Beim ersten Start die Staffel wählen; danach öffnet sich direkt die Spielübersicht.
-
-Hinweis für Variante P2: Das Handy muss im selben WLAN wie der Rechner sein. Die Adresse lautet dann z. B. `http://<IP-des-Rechners>:8080`. Ohne HTTPS funktionieren Service Worker und „Bildschirm wach halten“ in Safari nicht (außer bei `localhost`). Für den vollen Funktionsumfang ist daher Variante P1 oder ein lokales Zertifikat nötig.
-
----
-
-## 9. Rechtliches (vor Entwicklungsbeginn klären)
-
-1. **Nutzungsbedingungen der Quellseiten** prüfen. Viele Portale untersagen automatisiertes Auslesen. Idealerweise eine Erlaubnis beim Verband bzw. Betreiber einholen; manche bieten offizielle Schnittstellen oder Widgets an.
-2. **Privat oder öffentlich?** Eine Seite nur für den Eigengebrauch oder die Familie ist weniger kritisch. Ist sie öffentlich erreichbar (Variante P1), gelten Impressumspflicht, Datenschutzerklärung und das Datenbankrecht an den Ergebnissen (§§ 87a ff. UrhG) stärker. Empfehlung: Bei P1 die Seite nicht öffentlich verlinken oder mit einem einfachen Zugangsschutz versehen (z. B. Cloudflare Access oder ein geheimer Pfad).
-3. **Jugendspieler sind minderjährig:** Spielernamen standardmäßig **ausblenden** (nur Trikotnummer), sofern nicht ausdrücklich gewünscht und erlaubt.
-4. **Vereinslogos** nur mit Erlaubnis; sonst Platzhalter mit Initialen.
-5. **Quellenangabe** mit Link auf jeder Ansicht.
+1. **Minderjährige:** Die Schnittstelle `getAllGameInfo` liefert die **vollen Namen aller Kinder** beider Mannschaften. Die Web-App ruft sie **nicht** ab und zeigt nur Trikotnummern. Testdaten im Repository enthalten keine Namen.
+2. **Nutzung der Schnittstelle:** Die Schnittstelle ist öffentlich und per CORS für alle Webseiten freigegeben, eine ausdrückliche Nutzungserlaubnis liegt aber nicht vor. Für den **privaten Gebrauch** (Familie, Eltern der Mannschaft) ist das Risiko gering. Vor einer **öffentlichen** Verbreitung Handball4All bzw. den HVW um Zustimmung bitten.
+3. **Quellenangabe:** Fußzeile „Daten: Handball4All AG“ mit Link zum Original-Ticker.
+4. **Keine Logos und keine Verbands- oder Vereinsmarken** ohne Erlaubnis. Das App-Symbol ist neutral, z. B. ein Handball.
+5. Wird die Seite öffentlich (z. B. über GitHub Pages), muss sie ein Impressum haben, und ein Hinweis zur Datenverarbeitung ist zu ergänzen. Alternativ die Adresse nur im Elternkreis weitergeben.
 
 ---
 
-## 10. Qualitätssicherung
+## 9. Tests
 
 | Bereich | Maßnahme |
 |---|---|
-| Adapter | Unit-Tests gegen gespeicherte Beispielseiten (vor, während, Halbzeit, nach dem Spiel, abgesagt, ohne Ticker, Sonderzeichen/Umlaute). |
-| Merger | Tests für Zuordnung (eindeutig, ähnliche Namen, zwei Mannschaften eines Vereins, verlegtes Spiel) und Konfliktregeln. |
-| Oberfläche | Playwright mit WebKit im iPhone-Profil: Einrichtung, Spielliste, Ticker, Hell/Dunkel. |
-| Demo-Modus | `?demo=1` spielt ein aufgezeichnetes Spiel im Zeitraffer ab, damit sich Live-Funktionen ohne echtes Spiel testen lassen. |
-| Proxy | Test: Nicht erlaubter Host → 403; Zeitüberschreitung → 504; Zwischenspeicher wirkt. |
-| Praxistest | Mindestens zwei echte Spieltage auf einem iPhone. |
+| Auswertung | Unit-Tests mit den echten Antworten vom 21.11.2026 (`tests/fixtures/`): Anzahl Tore = Endstand, Halbzeitstand 12:12, Erkennung aller Ereignistypen, Seite und Nummer korrekt. |
+| Uhr/Phase | Tests für: Uhr läuft, Uhr gestoppt, mehrere Ereignisse zur selben Sekunde, Halbzeit, Spielende, kein Ereignis. |
+| Fehler | Ungültiger Token (`status: 3`, `[]`), Netzwerkfehler, kaputtes JSON, unbekannter Ereignistext. |
+| Demo-Modus | `?demo=1` spielt die gespeicherte Partie im Zeitraffer (60× schneller) aus den Fixtures ab, damit sich alles ohne laufendes Spiel testen lässt. |
+| Oberfläche | Playwright mit WebKit im Format „iPhone 15“: Link einfügen, Spielansicht, Dunkelmodus. |
+| Praxis | Ein echtes Spiel auf dem iPhone verfolgen und mit dem Original-Ticker vergleichen. |
 
 ---
 
-## 11. Abnahmekriterien
+## 10. Abnahmekriterien
 
-1. Die Seite lässt sich auf dem iPhone zum Home-Bildschirm hinzufügen und startet im Vollbild.
-2. Die Staffel ist in unter 1 Minute ohne Anleitung gewählt.
-3. Ein neues Tor erscheint spätestens **30 s** nach Erscheinen auf der Quellseite (Seite geöffnet).
-4. Spielplan und Tabelle stimmen mit Quelle B überein (Stichprobe von 3 Spieltagen).
-5. Nach Spielende wird das Ergebnis aus Quelle B angezeigt.
-6. Im Flugmodus werden die zuletzt geladenen Daten mit Offline-Hinweis angezeigt.
-7. Ist die Seite im Hintergrund, finden keine Abrufe statt.
-8. Der Proxy lehnt Anfragen an nicht erlaubte Hosts ab.
+1. Mit der gespeicherten Antwort `tests/fixtures/game-9611841-messages.json` (Momentaufnahme bei 34:17, 2. Halbzeit) zeigt die Seite „TSV Neckartenzlingen – SG Hegensberg-Liebersbronn“ mit **20 : 18**, Phase „2. HZ“ und Halbzeitstand **12 : 12**. Nach Spielende wird eine zweite Momentaufnahme mit dem Endstand ergänzt.
+2. Bei einem laufenden Spiel erscheint ein neues Tor spätestens **20 s** nach dem Original-Ticker.
+3. Die Uhr läuft zwischen den Abrufen flüssig weiter und bleibt bei gestoppter Zeit stehen.
+4. Die Seite lässt sich zum Home-Bildschirm hinzufügen und startet im Vollbild ohne Safari-Leisten.
+5. Im Flugmodus erscheint der zuletzt gespeicherte Stand mit Offline-Hinweis.
+6. Im Hintergrund und nach Spielende finden keine Abrufe statt (prüfbar im Web-Inspektor).
+7. Es werden keine Spielernamen abgerufen oder angezeigt.
 
 ---
 
-## 12. Umsetzungsplan
+## 11. Umsetzungsplan
 
-| Phase | Inhalt | Ergebnis |
+| Schritt | Inhalt | Aufwand |
 |---|---|---|
-| **0 – Klärung** (2–3 Tage) | Quellen festlegen, Nutzungsbedingungen prüfen, im Browser unter *Entwicklertools → Netzwerk* untersuchen: JSON-Schnittstelle vorhanden? CORS erlaubt? Inhalte per JavaScript erzeugt? Beispielseiten speichern. Proxy-Variante wählen. | Entscheidung zu Quellen und Proxy |
-| **1 – Proxy + Adapter** (1 Woche) | Proxy, Adapter A und B, Merger, Tests | Getestete Datenschicht |
-| **2 – Oberfläche** (1–2 Wochen) | Einrichtung, Spielliste, Spieldetail, Tabelle, Aktualisierung, lokaler Speicher, Demo-Modus | Nutzbare Seite |
-| **3 – PWA + Feinschliff** (3–5 Tage) | Manifest, Symbole, Service Worker, Wake Lock, Dunkelmodus, Praxistest | Fertige Version 1.0 |
+| 1 | `parse.js` + `clock.js` mit Tests gegen die Fixtures | ½–1 Tag |
+| 2 | `h4a.js`, `store.js`, Polling-Steuerung | ½ Tag |
+| 3 | Oberfläche: Startseite, Spielansicht, Dunkelmodus | 1 Tag |
+| 4 | Manifest, Symbole, Service Worker, Wake Lock, Teilen | ½ Tag |
+| 5 | Veröffentlichen per GitHub Pages, Praxistest am nächsten Spieltag | ½ Tag |
 
-**Voraussetzungen:** ein beliebiger Rechner (Windows, macOS oder Linux) mit Code-Editor und Node.js. Bei Variante P1 zusätzlich ein kostenloses Konto bei einem Hosting-Anbieter, bei P2 ein Rechner, der im Heimnetz läuft. Ein Mac oder Apple-Developer-Account ist **nicht** nötig.
+**Voraussetzungen:** beliebiger Rechner mit Editor. Für die Tests wird Node.js gebraucht. Kein Mac, kein Apple-Account, kein Server.
+
+---
+
+## 12. Bedienung auf dem iPhone
+
+1. Webseite in Safari öffnen (z. B. `https://<benutzer>.github.io/handball-/`).
+2. **Teilen → „Zum Home-Bildschirm“**.
+3. Am Spieltag den Ticker-Link des Spiels (vom Verein, aus der WhatsApp-Gruppe oder von handball.net) kopieren und in der App einfügen. Alternativ im Link `https://spo.handball4all.de/service/ticker/index.html?token=…` den vorderen Teil durch die eigene Adresse ersetzen.
 
 ---
 
 ## 13. Offene Punkte
 
-1. **URL von Quelle A** (Beispiel-Ticker eines Spiels).
-2. **URL von Quelle B** (Seite der gewünschten Staffel).
-3. **Welche Jugend und Klasse** zuerst (z. B. „männliche C-Jugend, Bezirksliga XY, 2026/27“)? Reicht eine fest eingetragene Staffel, oder soll eine Auswahl über alle Staffeln möglich sein?
-4. **Proxy-Variante:** P1 (unterwegs nutzbar) oder P2 (nur im Heim-WLAN)?
-5. Nur für den **Eigengebrauch** oder auch für andere Eltern bzw. den Verein?
-6. Sollen **Spielernamen** angezeigt werden?
-
----
-
-## Anhang A: Checkliste zur Analyse einer Quellseite
-
-- [ ] URL-Schema für Staffel / Spiel / Ticker (welche Teile sind IDs?)
-- [ ] Stehen die Inhalte im HTML oder werden sie per JavaScript nachgeladen?
-- [ ] JSON-Anfragen im Netzwerk-Tab? Endpunkt, Parameter, Format
-- [ ] Sendet die Quelle `Access-Control-Allow-Origin`? (→ Proxy ggf. unnötig)
-- [ ] Darstellung der Status (geplant/live/beendet)
-- [ ] Eigenes Aktualisierungsintervall der Seite
-- [ ] Zeitzone, Zeichenkodierung (UTF-8 / ISO-8859-1)
-- [ ] `robots.txt` und Nutzungsbedingungen geprüft, Ergebnis notiert
-- [ ] Mindestens 5 Beispielseiten gespeichert
-
-## Anhang B: Bildschirmübersicht (Hochformat iPhone)
-
-```
-┌─────────────────────────┐   ┌─────────────────────────┐   ┌─────────────────────────┐
-│ mB-Jugend · BOL St. 2 ▾ │   │ ‹ Zurück   ☀ wach  ↗ Web│   │ Tabelle                 │
-│ [Spiele] [Tabelle]   ⟳  │   │  HSG Muster   TV Beisp. │   │ 1 HSG Muster   9  16:2  │
-│ ● LIVE                  │   │     14   :   12         │   │ 2 TV Beispiel  9  14:4  │
-│ HSG Muster  14:12  38'  │   │  2. HZ · 38:12 (HZ 7:6) │   │ 3 SG Nord      8  10:6  │
-│ SG Nord      9:11  31'  │   │ ─────────────────────── │   │ …                       │
-│ Sa, 22.11.              │   │ 38' ● Tor Muster  14:12 │   │                         │
-│ JSG Süd – TV Ost  16:00 │   │ 37' ⏱ 2 Min. Beispiel   │   │ (vorläufig, live)       │
-│ …                       │   │ 36' ● Tor Beisp.  13:12 │   │                         │
-│ Aktualisiert vor 8 s    │   │ …                       │   │                         │
-└─────────────────────────┘   └─────────────────────────┘   └─────────────────────────┘
-     Spielübersicht                 Spieldetail / Ticker              Tabelle
-```
+1. **Spielende-Meldung:** Wie lautet der Text am Spielende („Spielstand 2. Halbzeit“?) Nach dem Spiel vom 21.11.2026 anhand der gespeicherten Antwort prüfen und Regel und Fixture ergänzen.
+2. **Woher kommen die Tokens künftiger Spiele?** Wenn handball.net auf der Spielseite einen Ticker-Link zeigt, reicht das Kopieren. Eine automatische Ermittlung ist ohne Zugriff auf handball.net nicht möglich.
+3. **Spielplan und Tabelle:** Sollen sie automatisch kommen, wäre der Weg eine Anfrage beim HVW bzw. bei Handball4All nach einer offiziellen Schnittstelle. Bis dahin genügt ein Link (Adresse der Mannschaftsseite auf handball.net nachtragen).
+4. **Privat oder öffentlich:** Soll die Seite nur im Elternkreis genutzt werden? Davon hängen Impressum und Erlaubnis ab (Kapitel 8).
+5. Bedeutung des Feldes `ticker_update` (Wert 5) in `getAllGameInfo` ist unklar. Es wird nicht benötigt.
